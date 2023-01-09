@@ -3,40 +3,90 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../notifiers/play_button_notifier.dart';
+import '../notifiers/repeat_button_notifier.dart';
+
 class PageManager {
   PageManager() {
     _init();
   }
 
   late AudioPlayer _audioPlayer;
+  late ConcatenatingAudioSource _playlist;
 
-  //The song URL is hard-coded => need add a method to your state management class to set the URL. Or you could pass it in to the constructor as a dependency. Or you could request the URL from your service layer
-  static const urlSong =
-      'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3';
+  //TODO: define state notifier
+  final progressNotifier = ValueNotifier<ProgressBarState>(
+    ProgressBarState(
+      current: Duration.zero,
+      buffered: Duration.zero,
+      total: Duration.zero,
+    ),
+  );
+
+  //final buttonNotifier = ValueNotifier<ButtonState>(ButtonState.paused);
+
+  final currentSongTitleNotifier = ValueNotifier<String>('');
+  final playlistNotifier = ValueNotifier<List<String>>([]);
+  final repeatButtonNotifier = RepeatButtonNotifier();
+  final playButtonNotifier = PlayButtonNotifier();
+  final isFirstSongNotifier = ValueNotifier<bool>(true);
+  final isLastSongNotifier = ValueNotifier<bool>(true);
+  final isShuffleModeEnabledNotifier = ValueNotifier<bool>(true);
+
   //Since you can’t perform an async task inside of a constructor, you moved it to an _init method.
   void _init() async {
     _audioPlayer = AudioPlayer();
-    await _audioPlayer.setUrl(urlSong);
+    _setInitialPlaylist();
+    _listenForChangesInPlayerState();
+    _listenForChangesInPlayerPosition();
+    _listenForChangesInBufferedPosition();
+    _listenForChangesInTotalPosition();
+    _listenForChangesInSequenceState();
+  }
 
+  void _setInitialPlaylist() async {
+    //The song URL is hard-coded => need add a method to your state management class to set the URL. Or you could pass it in to the constructor as a dependency. Or you could request the URL from your service layer
+    /* const urlSong =
+        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3';
+    await _audioPlayer.setUrl(urlSong);*/
+
+    const prefix = 'https://www.soundhelix.com/examples/mp3';
+    final song1 = Uri.parse('$prefix/SoundHelix-Song-1.mp3');
+    final song2 = Uri.parse('$prefix/SoundHelix-Song-2.mp3');
+    final song3 = Uri.parse('$prefix/SoundHelix-Song-3.mp3');
+
+    _playlist = ConcatenatingAudioSource(
+      children: [
+        AudioSource.uri(song1, tag: 'Song 1'),
+        AudioSource.uri(song2, tag: 'Song 2'),
+        AudioSource.uri(song3, tag: 'Song 3'),
+      ],
+    );
+    await _audioPlayer.setAudioSource(_playlist);
+  }
+
+  void _listenForChangesInPlayerState() {
     _audioPlayer.playerStateStream.listen((playerState) {
       final isPlaying = playerState.playing;
       final processingState = playerState.processingState;
-      log('Is Playing: $isPlaying processingState: $processingState');
+      //log('Is Playing: $isPlaying processingState: $processingState');
 
       if (processingState == ProcessingState.loading ||
           processingState == ProcessingState.buffering) {
-        buttonNotifier.value = ButtonState.loading;
+        playButtonNotifier.value = ButtonState.loading;
       } else if (!isPlaying) {
-        buttonNotifier.value = ButtonState.paused;
+        playButtonNotifier.value = ButtonState.paused;
       } else if (processingState != ProcessingState.completed) {
-        buttonNotifier.value = ButtonState.playing;
+        playButtonNotifier.value = ButtonState.playing;
       } else {
         //complete
         _audioPlayer.seek(Duration.zero);
         _audioPlayer.pause();
       }
     });
+  }
 
+  void _listenForChangesInPlayerPosition() {
     _audioPlayer.positionStream.listen((position) {
       final oldState = progressNotifier.value;
       progressNotifier.value = ProgressBarState(
@@ -44,7 +94,9 @@ class PageManager {
           buffered: oldState.buffered,
           total: oldState.total);
     });
+  }
 
+  void _listenForChangesInBufferedPosition() {
     _audioPlayer.bufferedPositionStream.listen((bufferedPosition) {
       final oldState = progressNotifier.value;
       progressNotifier.value = ProgressBarState(
@@ -52,7 +104,9 @@ class PageManager {
           buffered: bufferedPosition,
           total: oldState.total);
     });
+  }
 
+  void _listenForChangesInTotalPosition() {
     _audioPlayer.durationStream.listen((totalDuration) {
       final oldState = progressNotifier.value;
       progressNotifier.value = ProgressBarState(
@@ -62,16 +116,6 @@ class PageManager {
       );
     });
   }
-
-  final progressNotifier = ValueNotifier<ProgressBarState>(
-    ProgressBarState(
-      current: Duration.zero,
-      buffered: Duration.zero,
-      total: Duration.zero,
-    ),
-  );
-
-  final buttonNotifier = ValueNotifier<ButtonState>(ButtonState.paused);
 
   void play() {
     _audioPlayer.play();
@@ -88,6 +132,59 @@ class PageManager {
   void dispose() {
     _audioPlayer.dispose();
   }
+
+  void _listenForChangesInSequenceState() {
+    _audioPlayer.sequenceStateStream.listen((sequenceState) {
+      if (sequenceState == null) return;
+      // update current song title
+      final currentItem = sequenceState.currentSource;
+      final title = currentItem?.tag as String?;
+      currentSongTitleNotifier.value = title ?? '';
+      // TODO: update playlist
+      final playlists = sequenceState.effectiveSequence;
+      final titles = playlists.map((item) => item.tag as String).toList();
+      playlistNotifier.value = titles;
+      // TODO: update shuffle mode
+      isShuffleModeEnabledNotifier.value = sequenceState.shuffleModeEnabled;
+      // TODO: update previous and next buttons
+      if (playlists.isEmpty || currentItem == null) {
+        isFirstSongNotifier.value = true;
+        isLastSongNotifier.value = true;
+      } else {
+        isFirstSongNotifier.value = playlists.first == currentItem;
+        isLastSongNotifier.value = playlists.last == currentItem;
+      }
+    });
+  }
+
+  void onRepeatButtonPressed() {
+    repeatButtonNotifier.nextState();
+    switch (repeatButtonNotifier.value) {
+      case RepeatState.off:
+        _audioPlayer.setLoopMode(LoopMode.off);
+        break;
+      case RepeatState.repeatSong:
+        _audioPlayer.setLoopMode(LoopMode.one);
+        break;
+      case RepeatState.repeatPlaylist:
+        _audioPlayer.setLoopMode(LoopMode.all);
+        break;
+    }
+  }
+
+  void onPreviousSongButtonPressed() {
+    _audioPlayer.seekToPrevious();
+  }
+
+  void onNextSongButtonPressed() {
+    _audioPlayer.seekToNext();
+  }
+
+  void onShuffleButtonPressed() {
+    //TODO
+  }
+  void addSong() {}
+  void removeSong() {}
 }
 
 class ProgressBarState {
@@ -100,10 +197,4 @@ class ProgressBarState {
     required this.buffered,
     required this.total,
   });
-}
-
-enum ButtonState {
-  paused,
-  playing,
-  loading,
 }
