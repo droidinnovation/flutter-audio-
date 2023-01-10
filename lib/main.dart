@@ -217,21 +217,21 @@ class PlayButton extends StatelessWidget {
         switch (btnState) {
           case ButtonState.loading:
             return Container(
-              margin: EdgeInsets.all(8.0),
+              margin: const EdgeInsets.all(8.0),
               width: 32.0,
               height: 32.0,
-              child: CircularProgressIndicator(),
+              child: const CircularProgressIndicator(),
             );
           case ButtonState.paused:
             return IconButton(
               onPressed: _pageManager.play,
-              icon: Icon(Icons.play_arrow),
+              icon: const Icon(Icons.play_arrow),
               iconSize: 32.0,
             );
           case ButtonState.playing:
             return IconButton(
               onPressed: _pageManager.pause,
-              icon: Icon(Icons.pause),
+              icon: const Icon(Icons.pause),
               iconSize: 32.0,
             );
         }
@@ -262,6 +262,20 @@ class ShuffleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Icon(Icons.shuffle, color: Colors.grey);
+    return ValueListenableBuilder<bool>(
+      valueListenable: _pageManager.isShuffleModeEnabledNotifier,
+      builder: (context, isEnabled, _) {
+        return IconButton(
+          onPressed: _pageManager.onShuffleButtonPressed,
+          icon: (isEnabled)
+              ? const Icon(Icons.shuffle)
+              : const Icon(
+                  Icons.shuffle,
+                  color: Colors.grey,
+                ),
+          iconSize: 32.0,
+        );
+      },
+    );
   }
 }
