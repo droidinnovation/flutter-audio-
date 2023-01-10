@@ -180,11 +180,26 @@ class PageManager {
     _audioPlayer.seekToNext();
   }
 
-  void onShuffleButtonPressed() {
-    //TODO
+  Future<void> onShuffleButtonPressed() async {
+    final enable = !_audioPlayer.shuffleModeEnabled;
+    if (enable) {
+      await _audioPlayer.shuffle();
+    }
+    await _audioPlayer.setShuffleModeEnabled(enable);
   }
-  void addSong() {}
-  void removeSong() {}
+
+  Future<void> addSong() async {
+    final songNumber = _playlist.length + 1;
+    const prefix = 'https://www.soundhelix.com/examples/mp3';
+    final song = Uri.parse('$prefix/SoundHelix-Song-$songNumber.mp3');
+    await _playlist.add(AudioSource.uri(song, tag: 'Song $songNumber'));
+  }
+
+  Future<void> removeSong() async {
+    final indexOfLastSong = _playlist.length - 1;
+    if (indexOfLastSong < 0) return;
+    await _playlist.removeAt(indexOfLastSong);
+  }
 }
 
 class ProgressBarState {
